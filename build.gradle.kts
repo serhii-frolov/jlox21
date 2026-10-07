@@ -1,5 +1,5 @@
 plugins {
-    java
+    application
 }
 
 group = "io.github.serhiifrolov"
@@ -9,6 +9,15 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+application {
+    mainClass = "io.github.serhiifrolov.jlox.Main"
+    applicationName = "jlox"
+}
+
+tasks.named<JavaExec>("run") {
+    standardInput = System.`in`
 }
 
 repositories {
