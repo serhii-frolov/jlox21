@@ -5,23 +5,30 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 
-/** CLI entry point: owns args, I/O and the process exit code. All language logic lives in {@link Lox}. */
+/**
+ * CLI entry point: owns args, I/O and the process exit code. All language logic lives in {@link Lox}.
+ *
+ * <p>Never lets an exception escape on bad input: every failure becomes one line on stderr and an
+ * exit code. Stack traces are for bugs in this program, not for the user's files.
+ */
 public final class Main {
     // Exit codes from <sysexits.h>, same values as the book
-    private static final int EX_OK = 0;
-    private static final int EX_USAGE = 64;
-    private static final int EX_DATAERR = 65;
-    private static final int EX_NOINPUT = 66;
+    static final int EX_OK = 0;
+    static final int EX_USAGE = 64;
+    static final int EX_DATAERR = 65;
+    static final int EX_NOINPUT = 66;
+    static final int EX_IOERR = 74;
 
     private Main() {}
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         int code = switch (args.length) {
             case 0 -> runPrompt();
-            case 1 -> runFile(Path.of(args[0]));
+            case 1 -> runFile(args[0]);
             default -> {
                 System.err.println("Usage: jlox [script]");
                 yield EX_USAGE;
@@ -32,25 +39,36 @@ public final class Main {
         }
     }
 
-    private static int runFile(Path path) throws IOException {
+    /** Package-private so tests can call it without spawning a JVM. */
+    static int runFile(String pathArg) {
         String source;
         try {
-            source = Files.readString(path); // UTF-8
+            source = Files.readString(Path.of(pathArg)); // UTF-8; throws on malformed input
         } catch (NoSuchFileException e) {
-            System.err.println("File not found: " + path);
+            System.err.println("File not found: " + pathArg);
             return EX_NOINPUT;
+        } catch (IOException | InvalidPathException e) {
+            // directory, permission denied, invalid UTF-8, bad path on Windows, ...
+            System.err.println("Cannot read " + pathArg + ": " + e.getMessage());
+            return EX_IOERR;
         }
         RunResult result = Lox.run(source);
         report(result);
         return result.hasErrors() ? EX_DATAERR : EX_OK;
     }
 
-    private static int runPrompt() throws IOException {
+    private static int runPrompt() {
         var in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         while (true) {
             System.out.print("> ");
             System.out.flush();
-            String line = in.readLine();
+            String line;
+            try {
+                line = in.readLine();
+            } catch (IOException e) {
+                System.err.println("Cannot read input: " + e.getMessage());
+                return EX_IOERR;
+            }
             if (line == null) { // Ctrl+D
                 System.out.println();
                 return EX_OK;
