@@ -60,8 +60,8 @@ public final class Scanner {
     }
 
     public List<Token> scanTokens() {
-        if (!isAtEnd() && peek() == BOM) {
-            advance();
+        if (peek() == BOM) {
+            current++; // not advance(): editors do not show the BOM, so it must not take a column
         }
         while (!isAtEnd()) {
             start = current;
@@ -246,21 +246,34 @@ public final class Scanner {
     }
 
     /**
-     * Human-readable form of a lexeme for diagnostics: {@code 'x'} if the first code point is
-     * visibly printable, {@code U+XXXX} otherwise (controls, format chars such as the BOM, non-ASCII
-     * spaces, lone surrogates). Takes the lexeme rather than a char so a surrogate pair prints as one
-     * code point.
+     * Human-readable form of a lexeme for diagnostics. A visible character is quoted and named,
+     * {@code 'x' (U+0078)}; anything else (controls, separators, format chars such as the BOM,
+     * marks, unassigned, private use, lone surrogates) is named only, {@code U+XXXX}. The code
+     * point is always present so the message is searchable and survives fonts that lack the glyph.
+     * Takes the lexeme rather than a char so a surrogate pair prints as one code point.
      */
     private static String describe(String lexeme) {
         int cp = lexeme.codePointAt(0);
-        int type = Character.getType(cp);
-        boolean printable = cp >= 0x20
-                && cp != 0x7F
-                && !Character.isISOControl(cp)
-                && type != Character.FORMAT
-                && type != Character.SPACE_SEPARATOR
-                && type != Character.SURROGATE;
-        return printable ? "'" + lexeme + "'" : "U+%04X".formatted(cp);
+        String name = "U+%04X".formatted(cp);
+        return isVisible(cp) ? "'" + lexeme + "' (" + name + ")" : name;
+    }
+
+    private static boolean isVisible(int cp) {
+        if (cp == ' ') {
+            return true;
+        }
+        return switch (Character.getType(cp)) {
+            case Character.UPPERCASE_LETTER, Character.LOWERCASE_LETTER, Character.TITLECASE_LETTER,
+                 Character.MODIFIER_LETTER, Character.OTHER_LETTER,
+                 Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER,
+                 Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION,
+                 Character.START_PUNCTUATION, Character.END_PUNCTUATION,
+                 Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+                 Character.OTHER_PUNCTUATION,
+                 Character.MATH_SYMBOL, Character.CURRENCY_SYMBOL, Character.MODIFIER_SYMBOL,
+                 Character.OTHER_SYMBOL -> true;
+            default -> false;
+        };
     }
 
     private void addToken(TokenType type) {
@@ -278,6 +291,7 @@ public final class Scanner {
 
     /** Records a diagnostic covering only the first {@code length} chars of the current lexeme. */
     private void error(String message, int length) {
+        assert length <= current - start : "diagnostic longer than lexeme";
         diagnostics.add(new Diagnostic(message, new Span(start, length, startLine, startColumn)));
     }
 

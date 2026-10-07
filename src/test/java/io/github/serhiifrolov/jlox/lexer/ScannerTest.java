@@ -287,7 +287,7 @@ class ScannerTest {
         @Test
         void printableCharacterIsQuoted() {
             assertThat(diagnostics("@")).singleElement()
-                    .extracting(Diagnostic::message).isEqualTo("Unexpected character '@'.");
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character '@' (U+0040).");
         }
 
         @Test
@@ -298,7 +298,7 @@ class ScannerTest {
 
         @Test
         void nonBreakingSpaceIsNamed() {
-            assertThat(diagnostics(" ")).singleElement()
+            assertThat(diagnostics("\u00A0")).singleElement()
                     .extracting(Diagnostic::message).isEqualTo("Unexpected character U+00A0.");
         }
 
@@ -306,28 +306,62 @@ class ScannerTest {
         void emojiIsOneDiagnosticWithLengthTwo() {
             String grin = "😀"; // U+1F600
             assertThat(diagnostics(grin)).singleElement().satisfies(d -> {
-                assertThat(d.message()).isEqualTo("Unexpected character '" + grin + "'."); // printable: quoted, not named
+                assertThat(d.message()).isEqualTo("Unexpected character '" + grin + "' (U+1F600).");
                 assertThat(d.span()).isEqualTo(new Span(0, 2, 1, 1));
             });
         }
 
         @Test
-        void loneSurrogateIsNamed() {
+        void loneHighSurrogateAtEndIsNamed() {
             assertThat(diagnostics("\uD83D")).singleElement()
                     .extracting(Diagnostic::message).isEqualTo("Unexpected character U+D83D.");
         }
 
         @Test
-        void leadingBomIsSkipped() {
-            List<Token> ts = tokens("﻿var");
+        void loneHighSurrogateDoesNotSwallowNextChar() {
+            List<Token> ts = tokens("\uD83Dx");
+            assertThat(ts).extracting(Token::type).containsExactly(IDENTIFIER, EOF);
+            assertThat(diagnostics("\uD83Dx")).singleElement()
+                    .extracting(Diagnostic::span).isEqualTo(new Span(0, 1, 1, 1));
+        }
+
+        @Test
+        void lowSurrogateFirstIsTwoDiagnostics() {
+            assertThat(diagnostics("\uDE00\uD83D")).extracting(Diagnostic::message)
+                    .containsExactly("Unexpected character U+DE00.", "Unexpected character U+D83D.");
+        }
+
+        @Test
+        void lineAndParagraphSeparatorsAreNamed() {
+            assertThat(diagnostics("\u2028\u2029")).extracting(Diagnostic::message)
+                    .containsExactly("Unexpected character U+2028.", "Unexpected character U+2029.");
+        }
+
+        @Test
+        void invisibleCharactersAreNamedNotQuoted() {
+            // combining acute, variation selector, private use, unassigned
+            assertThat(diagnostics("\u0301\uFE0F\uE000\u0378")).extracting(Diagnostic::message)
+                    .containsExactly("Unexpected character U+0301.", "Unexpected character U+FE0F.",
+                            "Unexpected character U+E000.", "Unexpected character U+0378.");
+        }
+
+        @Test
+        void leadingBomIsSkippedAndTakesNoColumn() {
+            List<Token> ts = tokens("\uFEFFvar");
             assertThat(ts).extracting(Token::type).containsExactly(VAR, EOF);
-            assertThat(ts.getFirst().span()).isEqualTo(new Span(1, 3, 1, 2));
-            assertThat(diagnostics("﻿var")).isEmpty();
+            assertThat(ts.getFirst().span()).isEqualTo(new Span(1, 3, 1, 1)); // offset counts it, column does not
+            assertThat(diagnostics("\uFEFFvar")).isEmpty();
+        }
+
+        @Test
+        void bomOnlySourceIsJustEof() {
+            assertThat(tokens("\uFEFF")).containsExactly(new Token(EOF, "", null, new Span(1, 0, 1, 1)));
+            assertThat(diagnostics("\uFEFF")).isEmpty();
         }
 
         @Test
         void bomElsewhereIsAnError() {
-            assertThat(diagnostics("x﻿")).singleElement()
+            assertThat(diagnostics("x\uFEFF")).singleElement()
                     .extracting(Diagnostic::message).isEqualTo("Unexpected character U+FEFF.");
         }
     }

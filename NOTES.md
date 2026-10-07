@@ -24,7 +24,7 @@ knows them and the cost is two ints per token.
 
 **Line/column are updated in exactly one place: `advance()`.** The book increments `line` in
 two places (`scanToken` and `string`), and a block-comment scanner written the same way makes
-three. I did it the book's way once by accident and every newline counted twice. One owner for position state, nothing else
+three. I added the book's `line++` on top of `advance()`'s once by accident and every newline counted twice. One owner for position state, nothing else
 touches it.
 
 **Diagnostics instead of a global.** The book uses `Lox.error()` + a static `hadError` flag.
@@ -41,7 +41,7 @@ raised, so the position is right for free. The diagnostic span is deliberately 1
 **Nested block comments need a counter (challenges 1 and 4).** A boolean `inComment` closes
 `/* a /* b */ c */` at the first `*/` and lexes ` c */` as `IDENTIFIER STAR SLASH`. A depth
 counter fixes it. This is also the answer to challenge 1: regular languages (regexes, DFAs)
-cannot count, so a grammar with nesting is not regular. Haskell has the same feature (`{- -}`
+cannot track unbounded nesting depth, so a grammar with nesting is not regular. Haskell has the same feature (`{- -}`
 nests). Python's INDENT/DEDENT is also non-regular but needs more than a counter: a stack of
 indentation levels. Haskell's layout rule goes further still and needs feedback from the parser
 (the `parse-error(t)` rule), so it is not a purely lexical problem.
@@ -49,14 +49,18 @@ indentation levels. Haskell's layout rule goes further still and needs feedback 
 **Why a scanner might keep comments and whitespace (challenge 3).** Formatters and
 pretty-printers need them to round-trip source. Doc generators read doc comments. IDE
 refactorings must not drop comments. For SAST specifically: comment-based suppressions
-(`// NOSONAR`, `// fortify[suppress]`-style markers) and commented-out-code detection both need
+(`// NOSONAR`, `# noqa`, `// nosemgrep`, `// eslint-disable-line`) and commented-out-code detection both need
 the comments to survive scanning. Roslyn attaches "trivia" to tokens for this reason; the
 TypeScript compiler keeps a full-start position per token and re-scans comments on demand. Not implemented here; candidate for a later PR.
 
-**Unexpected characters: readable, not raw.** A control char, a format char (BOM), a non-ASCII
-space or a lone surrogate prints as `U+XXXX`; anything visibly printable is quoted. A leading BOM
-is skipped silently: every Windows editor emits one and a diagnostic the user cannot act on is
-noise. A BOM anywhere else is an error.
+**Unexpected characters: readable, not raw.** A letter, digit, punctuation or symbol is quoted
+and named, `'@' (U+0040)`; everything else (controls, separators, format chars such as the BOM,
+combining marks, private use, unassigned, lone surrogates) is named only, `U+XXXX`. The code
+point is always there so a message is searchable and survives a terminal without the glyph. An
+allow-list of visible categories, not a deny-list: the first version deny-listed and missed
+U+2028. A leading BOM is skipped and takes no column, so line-1 columns match what the editor
+shows; every Windows editor emits one and a diagnostic the user cannot act on is noise. A BOM
+anywhere else is an error.
 
 **Deliberate gaps.**
 - No escape sequences in strings: `"a\nb"` is a backslash and an `n`. Unescaping is where
