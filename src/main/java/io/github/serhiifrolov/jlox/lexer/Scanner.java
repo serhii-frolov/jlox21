@@ -117,7 +117,13 @@ public final class Scanner {
                 }
             }
 
-            default -> error("Unexpected character " + describe(c) + ".");
+            default -> {
+                if (isDigit(c)) {
+                    number();
+                } else {
+                    error("Unexpected character " + describe(c) + ".");
+                }
+            }
 
         }
 
@@ -142,7 +148,14 @@ public final class Scanner {
 
     /** Ch. 4.6.2. Digits, optional '.' + digits. Neither ".5" nor "5." is a number. */
     private void number() {
-        // TODO(ch. 4.6.2)
+        while (isDigit(peek())) advance();
+        if (peek() == '.' && isDigit(peekNext())) {
+            advance();
+            while (isDigit(peek())) {
+                advance();
+            }
+        }
+        addToken(NUMBER, Double.parseDouble(lexeme()));
     }
 
     /** Ch. 4.7. Maximal munch, then look the lexeme up in {@link #KEYWORDS}. */
