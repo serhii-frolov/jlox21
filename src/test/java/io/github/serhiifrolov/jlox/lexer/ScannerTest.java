@@ -226,5 +226,12 @@ class ScannerTest {
         void validSourceHasNoDiagnostics() {
             assertThat(diagnostics("var x = 1 + 2; // ok")).isEmpty();
         }
+
+        @Test
+        void controlCharactersAreNamedInDiagnostics() {
+            assertThat(diagnostics("\u0001")).singleElement()
+                .extracting(Diagnostic::message)
+                .isEqualTo("Unexpected character U+0001.");
+        }
     }
 }

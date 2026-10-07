@@ -101,7 +101,21 @@ public final class Scanner {
             case '<' -> addToken(match('=') ? LESS_EQUAL : LESS);
             case '>' -> addToken(match('=') ? GREATER_EQUAL : GREATER);
 
-            default -> error("Unexpected character '" + c + "'.");
+            case ' ', '\r', '\t', '\n' -> { }
+
+            case '/' -> {
+                if (match('/')) {
+                    while (peek() != '\n' && !isAtEnd()) {
+                        advance();
+                    }
+                } else if (match('*')) {
+                    blockComment();
+                } else {
+                    addToken(SLASH);
+                }
+            }
+
+            default -> error("Unexpected character " + describe(c) + ".");
 
         }
 
@@ -171,6 +185,12 @@ public final class Scanner {
 
     private static boolean isAlpha(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    }
+
+    /** Human-readable form of a char for diagnostics: 'x' for printable, U+XXXX otherwise. */
+    private static String describe(char c) {
+        boolean printable = c >= 0x20 && c != 0x7F && !Character.isISOControl(c);
+        return printable ? "'" + c + "'" : "U+%04X".formatted((int) c);
     }
 
     private static boolean isAlphaNumeric(char c) {
