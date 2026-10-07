@@ -170,7 +170,23 @@ public final class Scanner {
 
     /** Challenge 4. Nesting allowed; counts newlines. Unterminated → error anchored at the opening slash-star. */
     private void blockComment() {
-        // TODO(ch. 4 challenge 4)
+        int depth = 1;
+        while (depth > 0 && !isAtEnd()) {
+            if (peek() == '/' && peekNext() == '*') {
+                advance();
+                advance();
+                depth++;
+            } else if (peek() == '*' && peekNext() == '/') {
+                advance();
+                advance();
+                depth--;
+            } else {
+                advance();
+            }
+        }
+        if (depth > 0) {
+            error("Unterminated block comment.");
+        }
     }
 
     // ---------------------------------------------------------------- helpers (done)
