@@ -15,7 +15,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/** Spec for the scanner, Crafting Interpreters ch. 4 + challenge 4. Make these green. */
+/** Spec for the scanner, Crafting Interpreters ch. 4 + challenge 4 (nested block comments). */
 class ScannerTest {
 
     private static List<Token> tokens(String source) {
@@ -94,14 +94,38 @@ class ScannerTest {
         }
 
         @Test
-        void unterminatedBlockComment() {
+        void unterminatedBlockCommentIsReportedAtOpener() {
             assertThat(types("x /* never closed")).containsExactly(IDENTIFIER, EOF);
             assertThat(diagnostics("x /* never closed")).singleElement()
                     .satisfies(d -> {
                         assertThat(d.message()).containsIgnoringCase("unterminated");
-                        assertThat(d.span().line()).isEqualTo(1);
-                        assertThat(d.span().column()).isEqualTo(3);
+                        assertThat(d.span()).isEqualTo(new Span(2, 2, 1, 3));
                     });
+        }
+
+        @Test
+        void unterminatedBlockCommentAtStart() {
+            assertThat(types("/*")).containsExactly(EOF);
+            assertThat(diagnostics("/*")).singleElement()
+                    .extracting(Diagnostic::span).isEqualTo(new Span(0, 2, 1, 1));
+        }
+
+        @Test
+        void unterminatedNestedCommentIsReportedAtOuterOpener() {
+            assertThat(diagnostics("/* /* */")).singleElement()
+                    .extracting(Diagnostic::span).isEqualTo(new Span(0, 2, 1, 1));
+        }
+
+        @Test
+        void closeWithoutOpenIsTwoTokens() {
+            assertThat(types("*/")).containsExactly(STAR, SLASH, EOF);
+            assertThat(diagnostics("*/")).isEmpty();
+        }
+
+        @Test
+        void slashStarSlashDoesNotClose() {
+            assertThat(types("/*/ */")).containsExactly(EOF);
+            assertThat(diagnostics("/*/ */")).isEmpty();
         }
     }
 
@@ -129,9 +153,15 @@ class ScannerTest {
             assertThat(diagnostics("x \"oops")).singleElement()
                     .satisfies(d -> {
                         assertThat(d.message()).containsIgnoringCase("unterminated");
-                        assertThat(d.span().line()).isEqualTo(1);
-                        assertThat(d.span().column()).isEqualTo(3);
+                        assertThat(d.span()).isEqualTo(new Span(2, 1, 1, 3));
                     });
+        }
+
+        @Test
+        void unterminatedStringAtStart() {
+            assertThat(types("\"")).containsExactly(EOF);
+            assertThat(diagnostics("\"")).singleElement()
+                    .extracting(Diagnostic::span).isEqualTo(new Span(0, 1, 1, 1));
         }
     }
 
@@ -158,6 +188,14 @@ class ScannerTest {
         @Test
         void minusIsNotPartOfNumber() {
             assertThat(types("-1")).containsExactly(MINUS, NUMBER, EOF);
+        }
+
+        @Test
+        void secondDotStartsANewToken() {
+            List<Token> ts = tokens("1.2.3");
+            assertThat(ts).extracting(Token::type).containsExactly(NUMBER, DOT, NUMBER, EOF);
+            assertThat(ts.get(0).literal()).isEqualTo(1.2);
+            assertThat(ts.get(2).literal()).isEqualTo(3.0);
         }
     }
 
@@ -210,6 +248,25 @@ class ScannerTest {
         void columnResetsAfterNewline() {
             assertThat(tokens("ab\nc").get(1).span()).isEqualTo(new Span(3, 1, 2, 1));
         }
+
+        @Test
+        void crlfIsOneNewline() {
+            assertThat(tokens("a\r\nb").get(1).span()).isEqualTo(new Span(3, 1, 2, 1));
+        }
+
+        @Test
+        void tabIsOneColumn() {
+            assertThat(tokens("\tx").getFirst().span()).isEqualTo(new Span(1, 1, 1, 2));
+        }
+
+        @Test
+        void everyTokenLexemeMatchesItsSpan() {
+            String src = "var x = \"hi\" + 12.5; // c\n/* b */ if (x >= 1) { print nil; }";
+            for (Token t : tokens(src)) {
+                Span s = t.span();
+                assertThat(src.substring(s.offset(), s.offset() + s.length())).isEqualTo(t.lexeme());
+            }
+        }
     }
 
     @Nested
@@ -228,10 +285,50 @@ class ScannerTest {
         }
 
         @Test
-        void controlCharactersAreNamedInDiagnostics() {
+        void printableCharacterIsQuoted() {
+            assertThat(diagnostics("@")).singleElement()
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character '@'.");
+        }
+
+        @Test
+        void controlCharacterIsNamed() {
             assertThat(diagnostics("\u0001")).singleElement()
-                .extracting(Diagnostic::message)
-                .isEqualTo("Unexpected character U+0001.");
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character U+0001.");
+        }
+
+        @Test
+        void nonBreakingSpaceIsNamed() {
+            assertThat(diagnostics(" ")).singleElement()
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character U+00A0.");
+        }
+
+        @Test
+        void emojiIsOneDiagnosticWithLengthTwo() {
+            String grin = "😀"; // U+1F600
+            assertThat(diagnostics(grin)).singleElement().satisfies(d -> {
+                assertThat(d.message()).isEqualTo("Unexpected character '" + grin + "'."); // printable: quoted, not named
+                assertThat(d.span()).isEqualTo(new Span(0, 2, 1, 1));
+            });
+        }
+
+        @Test
+        void loneSurrogateIsNamed() {
+            assertThat(diagnostics("\uD83D")).singleElement()
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character U+D83D.");
+        }
+
+        @Test
+        void leadingBomIsSkipped() {
+            List<Token> ts = tokens("﻿var");
+            assertThat(ts).extracting(Token::type).containsExactly(VAR, EOF);
+            assertThat(ts.getFirst().span()).isEqualTo(new Span(1, 3, 1, 2));
+            assertThat(diagnostics("﻿var")).isEmpty();
+        }
+
+        @Test
+        void bomElsewhereIsAnError() {
+            assertThat(diagnostics("x﻿")).singleElement()
+                    .extracting(Diagnostic::message).isEqualTo("Unexpected character U+FEFF.");
         }
     }
 }
