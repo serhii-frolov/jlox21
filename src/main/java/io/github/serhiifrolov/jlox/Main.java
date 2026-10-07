@@ -43,12 +43,11 @@ public final class Main {
     static int runFile(String pathArg) {
         String source;
         try {
-            source = Files.readString(Path.of(pathArg)); // UTF-8; throws on malformed input
+            source = Files.readString(Path.of(pathArg));
         } catch (NoSuchFileException e) {
             System.err.println("File not found: " + pathArg);
             return EX_NOINPUT;
         } catch (IOException | InvalidPathException e) {
-            // directory, permission denied, invalid UTF-8, bad path on Windows, ...
             System.err.println("Cannot read " + pathArg + ": " + e.getMessage());
             return EX_IOERR;
         }
@@ -69,16 +68,16 @@ public final class Main {
                 System.err.println("Cannot read input: " + e.getMessage());
                 return EX_IOERR;
             }
-            if (line == null) { // Ctrl+D
+            if (line == null) {
                 System.out.println();
                 return EX_OK;
             }
-            report(Lox.run(line)); // errors don't end the session
+            report(Lox.run(line));
         }
     }
 
     private static void report(RunResult result) {
-        result.tokens().forEach(System.out::println); // temporary: until the parser exists
+        result.tokens().forEach(System.out::println);
         result.diagnostics().forEach(System.err::println);
     }
 }
