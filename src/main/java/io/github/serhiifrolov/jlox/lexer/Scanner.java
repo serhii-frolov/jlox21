@@ -120,6 +120,8 @@ public final class Scanner {
             default -> {
                 if (isDigit(c)) {
                     number();
+                } else if (isAlpha(c)) {
+                    identifier();
                 } else {
                     error("Unexpected character " + describe(c) + ".");
                 }
@@ -160,7 +162,10 @@ public final class Scanner {
 
     /** Ch. 4.7. Maximal munch, then look the lexeme up in {@link #KEYWORDS}. */
     private void identifier() {
-        // TODO(ch. 4.7)
+        while (isAlphaNumeric(peek())) {
+            advance();
+        }
+        addToken(KEYWORDS.getOrDefault(lexeme(), IDENTIFIER));
     }
 
     /** Challenge 4. Nesting allowed; counts newlines. Unterminated → error anchored at the opening slash-star. */
