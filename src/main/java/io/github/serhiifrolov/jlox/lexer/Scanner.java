@@ -103,6 +103,8 @@ public final class Scanner {
 
             case ' ', '\r', '\t', '\n' -> { }
 
+            case '"' -> string();
+
             case '/' -> {
                 if (match('/')) {
                     while (peek() != '\n' && !isAtEnd()) {
@@ -123,7 +125,19 @@ public final class Scanner {
 
     /** Ch. 4.6.1. Strings may span lines. Unterminated → error anchored at the opening quote. */
     private void string() {
-        // TODO(ch. 4.6.1)
+        while (peek() != '"' && !isAtEnd()) {
+            advance();
+        }
+
+        if (isAtEnd()) {
+            error("Unterminated string.");
+            return;
+        }
+
+        advance();
+
+        String value = source.substring(start + 1, current - 1);
+        addToken(STRING, value);
     }
 
     /** Ch. 4.6.2. Digits, optional '.' + digits. Neither ".5" nor "5." is a number. */
