@@ -1,5 +1,11 @@
 package io.github.serhiifrolov.jlox.ast;
 
+/**
+ * Prints an expression as a Lisp-style S-expression, e.g. {@code (* (- 123.0) (group 45.67))}.
+ *
+ * <p>Debug/test output, not user-facing. String literals are printed in double quotes so
+ * {@code "nil"} and {@code nil} stay distinguishable. Recursive; very deep trees overflow the stack.
+ */
 public final class AstPrinter {
     private AstPrinter() {}
 
@@ -7,7 +13,7 @@ public final class AstPrinter {
         return switch (expr) {
             case Expr.Binary b   -> parenthesize(b.operator().lexeme(), b.left(), b.right());
             case Expr.Grouping g -> parenthesize("group", g.expression());
-            case Expr.Literal l  -> l.value() == null ? "nil" : l.value().toString();
+            case Expr.Literal l  -> literal(l.value());
             case Expr.Unary u    -> parenthesize(u.operator().lexeme(), u.right());
         };
     }
@@ -19,5 +25,12 @@ public final class AstPrinter {
         }
         return sb.append(')').toString();
     }
-}
 
+    private static String literal(Object value) {
+        return switch (value) {
+            case null     -> "nil";
+            case String s -> "\"" + s + "\"";
+            default       -> value.toString();
+        };
+    }
+}
