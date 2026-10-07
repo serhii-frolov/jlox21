@@ -5,7 +5,7 @@ import io.github.serhiifrolov.jlox.lexer.Token;
 import io.github.serhiifrolov.jlox.lexer.TokenType;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class AstPrinterTest {
     private static final Span S = new Span(0, 0, 1, 1);

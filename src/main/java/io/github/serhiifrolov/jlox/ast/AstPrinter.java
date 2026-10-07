@@ -1,6 +1,8 @@
 package io.github.serhiifrolov.jlox.ast;
 
-public class AstPrinter {
+public final class AstPrinter {
+    private AstPrinter() {}
+
     public static String print(Expr expr) {
         return switch (expr) {
             case Expr.Binary b   -> parenthesize(b.operator().lexeme(), b.left(), b.right());
