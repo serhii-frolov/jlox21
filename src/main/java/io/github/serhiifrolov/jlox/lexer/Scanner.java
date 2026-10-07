@@ -16,9 +16,12 @@ import java.util.Objects;
  * <p>Contract: never throws on bad input. Problems are recorded as {@link Diagnostic}s and scanning
  * continues, so one run reports every lexical error in the file.
  *
- * <p>Lookahead is at most two characters ({@link #peek()} and {@link #peekNext()}).
+ * <p>Lookahead is at most two characters ({@link #peek()} and {@link #peekNext()}). A leading byte
+ * order mark (U+FEFF) is skipped; it is not part of the language but most Windows editors emit it.
  */
 public final class Scanner {
+
+    private static final char BOM = '﻿';
 
     private static final Map<String, TokenType> KEYWORDS = Map.ofEntries(
             entry("and", AND),
@@ -57,6 +60,9 @@ public final class Scanner {
     }
 
     public List<Token> scanTokens() {
+        if (!isAtEnd() && peek() == BOM) {
+            advance();
+        }
         while (!isAtEnd()) {
             start = current;
             startLine = line;
@@ -71,17 +77,7 @@ public final class Scanner {
         return List.copyOf(diagnostics);
     }
 
-    // ---------------------------------------------------------------- lexeme recognition (yours)
-
-    /**
-     * Scans exactly one lexeme starting at {@code start}. Ch. 4.5–4.7.
-     *
-     * <p>Cases to cover: single-char tokens; {@code ! = < >} with optional {@code =} (use
-     * {@link #match}); {@code /} as SLASH, {@code //} line comment, {@code /*} block comment;
-     * whitespace and newline (nothing to do: {@link #advance} already tracks line/column);
-     * {@code "} → {@link #string}; digit → {@link #number}; letter or {@code _} →
-     * {@link #identifier}; anything else → {@link #error}.
-     */
+    /** Scans exactly one lexeme starting at {@code start}. */
     private void scanToken() {
         char c = advance();
         switch (c) {
@@ -123,12 +119,10 @@ public final class Scanner {
                 } else if (isAlpha(c)) {
                     identifier();
                 } else {
-                    error("Unexpected character " + describe(c) + ".");
+                    unexpectedCharacter(c);
                 }
             }
-
         }
-
     }
 
     /** Ch. 4.6.1. Strings may span lines. Unterminated → error anchored at the opening quote. */
@@ -138,7 +132,7 @@ public final class Scanner {
         }
 
         if (isAtEnd()) {
-            error("Unterminated string.");
+            error("Unterminated string.", 1);
             return;
         }
 
@@ -150,13 +144,16 @@ public final class Scanner {
 
     /** Ch. 4.6.2. Digits, optional '.' + digits. Neither ".5" nor "5." is a number. */
     private void number() {
-        while (isDigit(peek())) advance();
+        while (isDigit(peek())) {
+            advance();
+        }
         if (peek() == '.' && isDigit(peekNext())) {
             advance();
             while (isDigit(peek())) {
                 advance();
             }
         }
+        // Cannot throw: the lexeme is digits with at most one interior dot.
         addToken(NUMBER, Double.parseDouble(lexeme()));
     }
 
@@ -168,7 +165,7 @@ public final class Scanner {
         addToken(KEYWORDS.getOrDefault(lexeme(), IDENTIFIER));
     }
 
-    /** Challenge 4. Nesting allowed; counts newlines. Unterminated → error anchored at the opening slash-star. */
+    /** Challenge 4. Nesting allowed. Unterminated → error anchored at the opening slash-star. */
     private void blockComment() {
         int depth = 1;
         while (depth > 0 && !isAtEnd()) {
@@ -185,11 +182,20 @@ public final class Scanner {
             }
         }
         if (depth > 0) {
-            error("Unterminated block comment.");
+            error("Unterminated block comment.", 2);
         }
     }
 
-    // ---------------------------------------------------------------- helpers (done)
+    /**
+     * Reports a character Lox has no use for. A surrogate pair is consumed whole so the diagnostic
+     * names one code point with length 2 instead of two half-characters.
+     */
+    private void unexpectedCharacter(char c) {
+        if (Character.isHighSurrogate(c) && Character.isLowSurrogate(peek())) {
+            advance();
+        }
+        error("Unexpected character " + describe(lexeme()) + ".");
+    }
 
     private boolean isAtEnd() {
         return current >= source.length();
@@ -235,14 +241,26 @@ public final class Scanner {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
     }
 
-    /** Human-readable form of a char for diagnostics: 'x' for printable, U+XXXX otherwise. */
-    private static String describe(char c) {
-        boolean printable = c >= 0x20 && c != 0x7F && !Character.isISOControl(c);
-        return printable ? "'" + c + "'" : "U+%04X".formatted((int) c);
-    }
-
     private static boolean isAlphaNumeric(char c) {
         return isAlpha(c) || isDigit(c);
+    }
+
+    /**
+     * Human-readable form of a lexeme for diagnostics: {@code 'x'} if the first code point is
+     * visibly printable, {@code U+XXXX} otherwise (controls, format chars such as the BOM, non-ASCII
+     * spaces, lone surrogates). Takes the lexeme rather than a char so a surrogate pair prints as one
+     * code point.
+     */
+    private static String describe(String lexeme) {
+        int cp = lexeme.codePointAt(0);
+        int type = Character.getType(cp);
+        boolean printable = cp >= 0x20
+                && cp != 0x7F
+                && !Character.isISOControl(cp)
+                && type != Character.FORMAT
+                && type != Character.SPACE_SEPARATOR
+                && type != Character.SURROGATE;
+        return printable ? "'" + lexeme + "'" : "U+%04X".formatted(cp);
     }
 
     private void addToken(TokenType type) {
@@ -253,9 +271,14 @@ public final class Scanner {
         tokens.add(new Token(type, lexeme(), literal, currentSpan()));
     }
 
-    /** Records a diagnostic for the current lexeme (start..current). Scanning continues. */
+    /** Records a diagnostic covering the current lexeme (start..current). Scanning continues. */
     private void error(String message) {
         diagnostics.add(new Diagnostic(message, currentSpan()));
+    }
+
+    /** Records a diagnostic covering only the first {@code length} chars of the current lexeme. */
+    private void error(String message, int length) {
+        diagnostics.add(new Diagnostic(message, new Span(start, length, startLine, startColumn)));
     }
 
     private String lexeme() {
